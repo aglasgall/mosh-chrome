@@ -107,7 +107,7 @@ class SSHLogin {
   // Prefers to return false if input is not parseable.
   bool AskYesNo(const std::string& prompt);
 
-  bool DoPasswordAuth();
+  int DoPasswordAuth();
   bool DoInteractiveAuth();
   bool DoPublicKeyAuth();
   bool DoConversation();

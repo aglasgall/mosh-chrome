@@ -96,8 +96,9 @@ bool SSHLogin::AskYesNo(const string& prompt) {
 }
 
 bool SSHLogin::Start() {
+  bool authenticated = false;
+  int pw_auth_success = SSH_AUTH_DENIED;
   setenv("HOME", "dummy", 1);  // To satisfy libssh.
-
   if (Resolve() == false) {
     return false;
   }
@@ -119,23 +120,29 @@ bool SSHLogin::Start() {
     return false;
   }
 
+ negotiate:
   const auto auths_ptr = GetAuthTypes();
   if (auths_ptr == nullptr) {
     return false;
   }
 
-  bool authenticated = false;
+  authenticated = false;
   for (const auto& auth : *auths_ptr) {
     printf("Trying authentication type %s\r\n",
            ssh::GetAuthenticationTypeName(auth).c_str());
 
     switch (auth) {
       case ssh::AuthenticationType::kPassword:
-        authenticated = DoPasswordAuth();
+        pw_auth_success = DoPasswordAuth();
+	if ( pw_auth_success == SSH_AUTH_PARTIAL) {
+	  goto negotiate;
+	} else {
+	  authenticated = (pw_auth_success == SSH_AUTH_SUCCESS);
+	}
         break;
       case ssh::AuthenticationType::kInteractive:
         authenticated = DoInteractiveAuth();
-        break;
+	break;
       case ssh::AuthenticationType::kPublicKey:
         authenticated = DoPublicKeyAuth();
         break;
@@ -371,8 +378,8 @@ unique_ptr<vector<ssh::AuthenticationType>> SSHLogin::GetAuthTypes() {
   // they should be tried.
   vector<ssh::AuthenticationType> client_auths;
   client_auths.push_back(ssh::AuthenticationType::kPublicKey);
-  client_auths.push_back(ssh::AuthenticationType::kInteractive);
   client_auths.push_back(ssh::AuthenticationType::kPassword);
+  client_auths.push_back(ssh::AuthenticationType::kInteractive);
   client_auths.push_back(ssh::AuthenticationType::kNone);
 
   printf("Authentication types supported by server:\r\n");
@@ -407,7 +414,8 @@ unique_ptr<vector<ssh::AuthenticationType>> SSHLogin::GetAuthTypes() {
   return supported_auths;
 }
 
-bool SSHLogin::DoPasswordAuth() {
+int SSHLogin::DoPasswordAuth() {
+  int authenticated = SSH_AUTH_DENIED;
   for (int tries = RETRIES; tries > 0; --tries) {
     char input[INPUT_SIZE];
     printf("Password: ");
@@ -417,11 +425,15 @@ bool SSHLogin::DoPasswordAuth() {
       // User provided no input; skip this authentication type.
       return false;
     }
-    bool authenticated = session_->AuthUsingPassword(input);
+    authenticated = session_->AuthUsingPassword(input);
     // For safety, zero the sensitive input ASAP.
     memset(input, 0, sizeof(input));
-    if (authenticated) {
-      return true;
+    fprintf(stderr, "Value of authenticated was %d", authenticated);
+    if (authenticated == SSH_AUTH_SUCCESS) {
+      break;
+    } else if (authenticated == SSH_AUTH_PARTIAL) {
+      fprintf(stderr, "Password authentication succeeded, but more authentication required\r\n");
+      break;
     }
     if (tries == 1) {
       // Only display error on last try.
@@ -429,7 +441,7 @@ bool SSHLogin::DoPasswordAuth() {
               session_->GetLastError().c_str());
     }
   }
-  return false;
+  return authenticated;
 }
 
 // Formats a string for output. Particularly, adds '\r' after '\n'.

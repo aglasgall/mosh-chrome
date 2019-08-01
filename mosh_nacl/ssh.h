@@ -166,9 +166,8 @@ class Session : public ResultCode {
   // Using a plain char * to allow you to manage the lifecycle of sensitive
   // data. This class does not make a copy of the string, but just passes it to
   // libssh.
-  bool AuthUsingPassword(const char* password) {
-    return ParseCode(ssh_userauth_password(s_, nullptr, password),
-                     SSH_AUTH_SUCCESS);
+  int AuthUsingPassword(const char* password) {
+    return ssh_userauth_password(s_, nullptr, password);
   }
 
   // Authenticate using keyboard-interactive auth. Returns a
